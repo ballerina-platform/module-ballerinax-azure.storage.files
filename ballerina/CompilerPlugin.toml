@@ -3,4 +3,4 @@ id = "azure.storage.files-compiler-plugin"
 class = "io.ballerina.lib.azure.storage.files.plugin.AzureFilesCompilerPlugin"
 
 [[dependency]]
-path = "../compiler-plugin/build/libs/azure.storage.files-compiler-plugin-0.9.0-SNAPSHOT.jar"
+path = "../compiler-plugin/build/libs/azure.storage.files-compiler-plugin-0.9.0.jar"
