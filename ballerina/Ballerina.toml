@@ -2,7 +2,7 @@
 distribution = "2201.12.0"
 org = "ballerinax"
 name = "azure.storage.files"
-version = "1.0.1"
+version = "1.0.2"
 authors = ["Ballerina"]
 keywords = ["Type/Connector", "Area/Storage & File Management", "Cost/Paid", "Vendor/Microsoft"]
 icon = "icon.png"
@@ -18,8 +18,8 @@ graalvmCompatible = true
 [[platform.java21.dependency]]
 groupId = "io.ballerina.lib"
 artifactId = "azure.storage.files-native"
-version = "1.0.1"
-path = "../native/build/libs/azure.storage.files-native-1.0.1.jar"
+version = "1.0.2"
+path = "../native/build/libs/azure.storage.files-native-1.0.2-SNAPSHOT.jar"
 
 [[platform.java21.dependency]]
 groupId = "com.azure"
