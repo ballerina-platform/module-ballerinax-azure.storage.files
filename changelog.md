@@ -2,6 +2,12 @@
 
 This file documents all notable changes to the Ballerina Azure Files package. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Remove conflicting jar file warnings during consumer builds by aligning the `data.jsondata` and `data.xmldata` dependency versions with the distribution and marking `slf4j-api` as test-only
+
 ## [1.0.2] - 2026-09-08
 
 ### Fixed

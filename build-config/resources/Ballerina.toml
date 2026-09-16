@@ -71,6 +71,7 @@ version = "@jna.platform.version@"
 groupId = "org.slf4j"
 artifactId = "slf4j-api"
 version = "@slf4j.version@"
+scope="testOnly"
 
 [[platform.java21.dependency]]
 groupId = "io.ballerina.lib"
