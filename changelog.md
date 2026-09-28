@@ -2,6 +2,18 @@
 
 This file documents all notable changes to the Ballerina Azure Files package. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Remove conflicting jar file warnings during consumer builds by aligning the `data.jsondata` and `data.xmldata` dependency versions with the distribution and marking `slf4j-api` as test-only
+
+## [1.0.2] - 2026-09-08
+
+### Fixed
+
+- Add metadata files
+
 ## [1.0.1] - 2026-08-21
 
 ### Added
@@ -15,6 +27,8 @@ This file documents all notable changes to the Ballerina Azure Files package. Th
 - A ranged `downloadToFile` no longer drops the range's last byte
 - The CSV row stream and the content streams close their sources when parsing or reading fails
 - Listener diagnostics reach the Ballerina log (they were silently discarded), a handler panic triggers the `afterError` consume action, and a stopped listener rejects a restart instead of never polling again
+- The compiler plugin's type-reference walks are bounded and null-guarded, so erroneous or in-progress sources cannot hang or crash the analysis, or the IDE's language server running it
+- A failure to invoke the `onError` handler is reported as a Ballerina error with its stack trace
 
 ### Changed
 

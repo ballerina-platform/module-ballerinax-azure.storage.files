@@ -1,5 +1,6 @@
 [package]
 distribution = "2201.12.0"
+include = ["metadata/**"]
 org = "ballerinax"
 name = "azure.storage.files"
 version = "@toml.version@"
@@ -70,6 +71,7 @@ version = "@jna.platform.version@"
 groupId = "org.slf4j"
 artifactId = "slf4j-api"
 version = "@slf4j.version@"
+scope="testOnly"
 
 [[platform.java21.dependency]]
 groupId = "io.ballerina.lib"

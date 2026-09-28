@@ -49,7 +49,7 @@ def stripBallerinaExtensionVersion(String extVersion) {
 ballerina {
     packageOrganization = packageOrg
     module = packageName
-    testCoverageParam = "--code-coverage --coverage-format=xml --excludes=\"modules/**/**\""
+    testCoverageParam = "--code-coverage --coverage-format=xml"
     platform = "java21"
     // The connector build: every bal step runs in the released ballerina/ballerina docker
     // image (tag = ballerinaLangVersion), so no distribution is downloaded or unpacked.
@@ -124,17 +124,12 @@ clean {
     delete 'lib'
 }
 
-// Both build and test resolve the native jar through Ballerina.toml, so each needs the
-// native module built first (test would otherwise run before the jar exists after a clean).
 build.dependsOn ":azure.storage.files-native:build"
 test.dependsOn ":azure.storage.files-native:build"
 
-// The package loads the listener compiler plugin through CompilerPlugin.toml, so each needs
-// the plugin jar built first (compile-time service validation runs during the package build).
 build.dependsOn ":azure.storage.files-compiler-plugin:build"
 test.dependsOn ":azure.storage.files-compiler-plugin:build"
 
-// The path-based data.* platform jars are copied into ballerina/lib before bal runs.
 build.dependsOn copyToLib
 test.dependsOn copyToLib
 
@@ -161,8 +156,6 @@ task publishToLocalRepo(type: Exec) {
     }
 }
 
-// The push-to-main build publishes a timestamped snapshot of the package archive to GitHub
-// Packages (the createArtifactZip task comes from the io.ballerina.plugin plugin).
 publishing {
     publications {
         maven(MavenPublication) {

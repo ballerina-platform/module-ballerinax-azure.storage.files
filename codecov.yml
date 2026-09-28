@@ -1,7 +1,3 @@
-ignore:
-  - "ballerina/modules"
-  - "examples"
-
 coverage:
   precision: 2
   round: down
