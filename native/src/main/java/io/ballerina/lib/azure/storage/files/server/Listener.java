@@ -822,13 +822,6 @@ public final class Listener {
         }
     }
 
-    // Overload retained for the onError takeover path which does not have handler name or parent context.
-    private static void postProcess(ListenerContext ctx, BObject listenerObj, ServiceContext serviceContext,
-                                    PostAction action,
-                                    String path, String expectedETag) {
-        postProcess(ctx, listenerObj, serviceContext, action, path, expectedETag, null, null);
-    }
-
     private static void ensureDirectory(ListenerContext ctx, ShareClient share, String directoryPath) {
         if (directoryPath.isEmpty()) {
             return;
