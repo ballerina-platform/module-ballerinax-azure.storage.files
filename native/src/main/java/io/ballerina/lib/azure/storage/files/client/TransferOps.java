@@ -22,6 +22,8 @@ import com.azure.storage.file.share.ShareFileClient;
 import com.azure.storage.file.share.StorageFileInputStream;
 import com.azure.storage.file.share.models.ShareFileRange;
 import com.azure.storage.file.share.models.ShareFileUploadRangeOptions;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesMetricsUtil;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesTracingUtil;
 import io.ballerina.lib.azure.storage.files.util.BallerinaAzureClient;
 import io.ballerina.lib.azure.storage.files.util.FilesErrorCreator;
 import io.ballerina.lib.azure.storage.files.util.OptionsReader;
@@ -53,6 +55,8 @@ public final class TransferOps {
 
     // Key under which an open content input stream is stored on a stream generator object.
     private static final String NATIVE_INPUT_STREAM = "inputStream";
+    static final String NATIVE_REMOTE_URL = "observabilityRemoteUrl";
+    static final String NATIVE_PROTOCOL = "observabilityProtocol";
 
     private TransferOps() {
     }
@@ -69,7 +73,10 @@ public final class TransferOps {
     /** Uploads a local file to the share, creating the destination at the source's size. */
     public static Object uploadFromFile(Environment env, BObject self, BString sourcePath,
                                     BString destinationPath, Object options) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_PUT,
+                destinationPath.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             Path localPath = Path.of(sourcePath.getValue());
             long size;
             try {
@@ -83,8 +90,12 @@ public final class TransferOps {
             ShareFileClient client = FileOps.fileClient(self, destinationPath);
             client.createWithResponse(FileOps.createOptions(size, options), null, null);
             client.uploadFromFile(localPath.toString());
+            AzureFilesMetricsUtil.reportBytesTransferred(BallerinaAzureClient.getRemoteUrl(self),
+                    BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.CONTEXT_CLIENT,
+                    AzureFilesMetricsUtil.OPERATION_TYPE_PUT, size);
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /**
@@ -93,31 +104,45 @@ public final class TransferOps {
      */
     public static Object upload(Environment env, BObject self, Object content,
                                        BString destinationPath, Object options) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_PUT,
+                destinationPath.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             byte[] bytes = contentBytes(content);
             ShareFileClient client = FileOps.fileClient(self, destinationPath);
             client.createWithResponse(FileOps.createOptions(bytes.length, options), null, null);
             if (bytes.length > 0) {
                 client.upload(new ByteArrayInputStream(bytes), bytes.length, null);
             }
+            AzureFilesMetricsUtil.reportBytesTransferred(BallerinaAzureClient.getRemoteUrl(self),
+                    BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.CONTEXT_CLIENT,
+                    AzureFilesMetricsUtil.OPERATION_TYPE_PUT, bytes.length);
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Creates the pre-allocated destination file for a stream upload. */
     public static Object prepareStreamUpload(Environment env, BObject self, BString destinationPath,
                                              long contentLength, Object options) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_PUT,
+                destinationPath.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             FileOps.fileClient(self, destinationPath)
                     .createWithResponse(FileOps.createOptions(contentLength, options), null, null);
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Writes one stream chunk at the given offset, splitting it into service-compliant ranges. */
     public static Object writeStreamChunk(Environment env, BObject self, BString destinationPath,
                                           long offset, BArray chunk) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_PUT,
+                destinationPath.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             byte[] bytes = chunk.getBytes();
             ShareFileClient client = FileOps.fileClient(self, destinationPath);
             long position = offset;
@@ -131,14 +156,21 @@ public final class TransferOps {
                 written += length;
                 position += length;
             }
+            AzureFilesMetricsUtil.reportBytesTransferred(BallerinaAzureClient.getRemoteUrl(self),
+                    BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.CONTEXT_CLIENT,
+                    AzureFilesMetricsUtil.OPERATION_TYPE_PUT, bytes.length);
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Downloads a share file (or a range of it) to a local file. */
     public static Object download(Environment env, BObject self, BString sourcePath,
                                       BString destinationPath, Object options) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_GET,
+                sourcePath.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             OptionsReader.DownloadArgs args = OptionsReader.downloadArgs(options);
             ShareFileClient client = FileOps.fileClient(self, sourcePath, args.snapshotId());
             try {
@@ -148,6 +180,17 @@ public final class TransferOps {
                     client.downloadToFileWithResponse(destinationPath.getValue(),
                             downloadToFileRange(OptionsReader.range(args.range())), null, null);
                 }
+                long transferredBytes;
+                try {
+                    transferredBytes = Files.size(Path.of(destinationPath.getValue()));
+                } catch (IOException e) {
+                    throw FilesErrorCreator.clientError(
+                            "cannot inspect local file " + destinationPath.getValue() + ": "
+                                    + BallerinaAzureClient.describe(e), e);
+                }
+                AzureFilesMetricsUtil.reportBytesTransferred(BallerinaAzureClient.getRemoteUrl(self),
+                        BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.CONTEXT_CLIENT,
+                        AzureFilesMetricsUtil.OPERATION_TYPE_GET, transferredBytes);
             } catch (UncheckedIOException e) {
                 throw FilesErrorCreator.clientError(
                         "cannot write local file " + destinationPath.getValue() + ": "
@@ -156,6 +199,7 @@ public final class TransferOps {
             }
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /**
@@ -176,15 +220,21 @@ public final class TransferOps {
     /** Opens the file's content stream and stores it on the Ballerina stream generator object. */
     public static Object openContentStream(Environment env, BObject self, BObject generator,
                                            BString path, Object options) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_GET,
+                path.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             OptionsReader.DownloadArgs args = OptionsReader.downloadArgs(options);
             ShareFileClient client = FileOps.fileClient(self, path, args.snapshotId());
             StorageFileInputStream stream = args.range() == null
                     ? client.openInputStream()
                     : client.openInputStream(OptionsReader.range(args.range()));
             generator.addNativeData(NATIVE_INPUT_STREAM, stream);
+            generator.addNativeData(NATIVE_REMOTE_URL, BallerinaAzureClient.getRemoteUrl(self));
+            generator.addNativeData(NATIVE_PROTOCOL, BallerinaAzureClient.getProtocol(self));
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Reads the next chunk from an open content stream; {@code null} signals the end. */
@@ -203,6 +253,9 @@ public final class TransferOps {
                     return null;
                 }
                 byte[] chunk = read == buffer.length ? buffer : Arrays.copyOf(buffer, read);
+                AzureFilesMetricsUtil.reportBytesTransferred((String) generator.getNativeData(NATIVE_REMOTE_URL),
+                        (String) generator.getNativeData(NATIVE_PROTOCOL),
+                        AzureFilesMetricsUtil.CONTEXT_CLIENT, AzureFilesMetricsUtil.OPERATION_TYPE_GET, read);
                 return ValueCreator.createArrayValue(chunk);
             } catch (IOException | RuntimeException e) {
                 // A service failure on a chunk read arrives wrapped in a RuntimeException; catching
