@@ -24,6 +24,8 @@ import com.azure.storage.file.share.models.ShareFileRangeList;
 import com.azure.storage.file.share.models.ShareItem;
 import com.azure.storage.file.share.models.ShareSnapshotInfo;
 import com.azure.storage.file.share.options.ShareFileListRangesDiffOptions;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesMetricsUtil;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesTracingUtil;
 import io.ballerina.lib.azure.storage.files.util.BallerinaAzureClient;
 import io.ballerina.lib.azure.storage.files.util.OptionsReader;
 import io.ballerina.lib.azure.storage.files.util.RecordMapper;
@@ -46,46 +48,57 @@ public final class SnapshotOps {
 
     /** Creates a snapshot of the bound share and returns its {@code ShareSnapshotInfo}. */
     public static Object createShareSnapshot(Environment env, BObject self, Object metadata) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE, null);
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             ShareSnapshotInfo info = BallerinaAzureClient.getShareClient(self)
                     .createSnapshotWithResponse(ValueUtils.toStringMap(metadata), null, Context.NONE)
                     .getValue();
             return RecordMapper.shareSnapshotInfo(info.getSnapshot(), info.getETag(), info.getLastModified());
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Lists the bound share's snapshots as {@code ShareSnapshotInfo} records. */
     public static Object listShareSnapshots(Environment env, BObject self) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_GET, null);
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             String shareName = BallerinaAzureClient.getShareClient(self).getShareName();
-            BArray result = RecordMapper.recordArray(RecordMapper.RECORD_SHARE_SNAPSHOT_INFO);
+            BArray snapshots = RecordMapper.recordArray(RecordMapper.RECORD_SHARE_SNAPSHOT_INFO);
             ListSharesOptions options = new ListSharesOptions()
                     .setPrefix(shareName)
                     .setIncludeSnapshots(true);
             for (ShareItem item : BallerinaAzureClient.getServiceClient(self).listShares(options, null, null)) {
                 if (item.getName().equals(shareName) && item.getSnapshot() != null) {
-                    result.append(RecordMapper.shareSnapshotInfo(item.getSnapshot(),
+                    snapshots.append(RecordMapper.shareSnapshotInfo(item.getSnapshot(),
                             item.getProperties().getETag(), item.getProperties().getLastModified()));
                 }
             }
-            return result;
+            return snapshots;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Deletes one snapshot of the bound share. */
     public static Object deleteShareSnapshot(Environment env, BObject self, BString snapshotId) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE, null);
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             String shareName = BallerinaAzureClient.getShareClient(self).getShareName();
             BallerinaAzureClient.getServiceClient(self).deleteShareWithResponse(shareName, snapshotId.getValue(), null,
                     Context.NONE);
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Lists the ranges of a file that changed since a previous snapshot. */
     public static Object listRangesDiff(Environment env, BObject self, BString path,
             BString previousSnapshotId, Object options) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_GET, path.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             ShareFileListRangesDiffOptions sdkOptions =
                     new ShareFileListRangesDiffOptions(previousSnapshotId.getValue());
             if (options != null) {
@@ -101,5 +114,6 @@ public final class SnapshotOps {
                     .getValue();
             return RecordMapper.rangeDiff(list);
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 }

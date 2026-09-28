@@ -21,6 +21,8 @@ package io.ballerina.lib.azure.storage.files.client;
 import com.azure.storage.file.share.ShareFileClient;
 import com.azure.storage.file.share.models.ShareFileHttpHeaders;
 import com.azure.storage.file.share.options.ShareFileCreateOptions;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesMetricsUtil;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesTracingUtil;
 import io.ballerina.lib.azure.storage.files.util.BallerinaAzureClient;
 import io.ballerina.lib.azure.storage.files.util.OptionsReader;
 import io.ballerina.lib.azure.storage.files.util.RecordMapper;
@@ -40,60 +42,82 @@ public final class FileOps {
 
     /** Creates an empty file pre-allocated to the given size. */
     public static Object createFile(Environment env, BObject self, BString path, long sizeInBytes, Object options) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_PUT, path.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             fileClient(self, path).createWithResponse(createOptions(sizeInBytes, options), null, null);
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Deletes a file. */
     public static Object deleteFile(Environment env, BObject self, BString path) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE, path.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             fileClient(self, path).delete();
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Checks whether the file exists; {@code false} only on a confirmed 404. */
     public static Object hasFile(Environment env, BObject self, BString path) {
-        return BallerinaAzureClient.invoke(env, () -> fileClient(self, path).exists());
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_GET, path.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> fileClient(self, path).exists());
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Fetches a file's properties as a {@code FileProperties} record. */
     public static Object getFileProperties(Environment env, BObject self, BString path) {
-        return BallerinaAzureClient.invoke(env,
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_GET, path.getValue());
+        Object result = BallerinaAzureClient.invoke(env,
                 () -> RecordMapper.fileProperties(fileClient(self, path).getProperties()));
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Replaces a file's user-defined metadata. */
     public static Object setFileMetadata(Environment env, BObject self, BString path, BMap<BString, BString> metadata) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE, path.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             fileClient(self, path).setMetadata(ValueUtils.toStringMap(metadata));
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Replaces a file's HTTP content headers, keeping its current size. */
     public static Object setContentHeaders(Environment env, BObject self, BString path, BMap<BString, Object> headers) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE, path.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             ShareFileClient client = fileClient(self, path);
             long currentSize = client.getProperties().getContentLength();
             ShareFileHttpHeaders sdkHeaders = OptionsReader.contentHeaders(headers);
             client.setProperties(currentSize, sdkHeaders, null, null);
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Renames or moves a file within the share. */
     public static Object renameFile(Environment env, BObject self, BString sourcePath,
                                     BString destinationPath, Object options) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE,
+                sourcePath.getValue(), destinationPath.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             String source = BallerinaAzureClient.filePath(sourcePath);
             String destination = BallerinaAzureClient.filePath(destinationPath);
             BallerinaAzureClient.getShareClient(self).getFileClient(source)
                     .renameWithResponse(DirectoryOps.renameOptions(destination, options), null, null);
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Builds the SDK create options shared by createFile and the upload operations. */

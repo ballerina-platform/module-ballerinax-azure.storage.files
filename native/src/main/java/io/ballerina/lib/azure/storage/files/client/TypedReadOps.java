@@ -19,6 +19,8 @@
 package io.ballerina.lib.azure.storage.files.client;
 
 import com.azure.storage.file.share.ShareFileClient;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesMetricsUtil;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesTracingUtil;
 import io.ballerina.lib.azure.storage.files.util.BallerinaAzureClient;
 import io.ballerina.lib.azure.storage.files.util.ContentBinder;
 import io.ballerina.lib.azure.storage.files.util.DataBindingOptions;
@@ -80,15 +82,20 @@ public final class TypedReadOps {
         // A Caller carries no native data; unwrap it to the Client it holds.
         BObject clientObj = self.getNativeData(BallerinaAzureClient.NATIVE_SHARE_CLIENT) == null
                 ? (BObject) self.getObjectValue(BallerinaAzureClient.CALLER_CLIENT_FIELD) : self;
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(clientObj),
+                BallerinaAzureClient.getProtocol(clientObj), AzureFilesMetricsUtil.OPERATION_TYPE_GET,
+                path.getValue());
         Type described = TypeUtils.getReferredType(targetType.getDescribingType());
         if (described.getTag() == TypeTags.STREAM_TAG) {
-            return streamTarget(env, clientObj, path, options, (StreamType) described);
+            Object result = streamTarget(env, clientObj, path, options, (StreamType) described);
+            return AzureFilesTracingUtil.sendTraces(result, env);
         }
         Object bytes = readFileBytes(env, clientObj, path, options);
         if (bytes instanceof BError) {
-            return bytes;
+            return AzureFilesTracingUtil.sendTraces(bytes, env);
         }
-        return bindMaterialized(env, (BArray) bytes, described, path, options);
+        Object result = bindMaterialized(env, (BArray) bytes, described, path, options);
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     // Binds materialized content to a non-stream target.
@@ -199,7 +206,11 @@ public final class TypedReadOps {
             } else {
                 client.downloadWithResponse(out, OptionsReader.range(args.range()), null, null, null);
             }
-            return ValueCreator.createArrayValue(out.toByteArray());
+            byte[] bytes = out.toByteArray();
+            AzureFilesMetricsUtil.reportBytesTransferred(BallerinaAzureClient.getRemoteUrl(clientObj),
+                    BallerinaAzureClient.getProtocol(clientObj), AzureFilesMetricsUtil.CONTEXT_CLIENT,
+                    AzureFilesMetricsUtil.OPERATION_TYPE_GET, bytes.length);
+            return ValueCreator.createArrayValue(bytes);
         });
     }
 
