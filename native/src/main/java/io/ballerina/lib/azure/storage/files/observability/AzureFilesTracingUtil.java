@@ -132,7 +132,8 @@ public final class AzureFilesTracingUtil {
             return null;
         }
         try {
-            BSpan span = BSpan.start(parentCtx.getSpan(), "azure_files", operation, false);
+            BSpan span = BSpan.start(parentCtx.getSpan().extractContextAsHttpHeaders(),
+                    "azure_files", operation, false);
             span.addTag(AzureFilesObserverContext.TAG_MODULE, AzureFilesMetricsUtil.MODULE_AZURE_FILES);
             span.addTag(AzureFilesObserverContext.TAG_CONTEXT, AzureFilesMetricsUtil.CONTEXT_LISTENER);
             span.addTag(AzureFilesObserverContext.TAG_ACTION_TYPE, AzureFilesMetricsUtil.ACTION_TYPE_EVENT);
