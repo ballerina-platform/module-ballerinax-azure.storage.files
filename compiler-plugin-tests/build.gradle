@@ -25,6 +25,10 @@ plugins {
 
 description = 'Ballerina - Azure Storage Files Compiler Plugin Tests'
 
+jacoco {
+    toolVersion = jacocoVersion
+}
+
 dependencies {
     checkstyle project(':checkstyle')
     checkstyle "com.puppycrawl.tools:checkstyle:${checkstylePluginVersion}"
