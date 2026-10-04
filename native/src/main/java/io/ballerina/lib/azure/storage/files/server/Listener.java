@@ -311,6 +311,7 @@ public final class Listener {
                 Map<String, Object> properties = AzureFilesTracingUtil.createErrorStrandProperties(
                         AzureFilesMetricsUtil.CONTEXT_LISTENER, ctx.url, ctx.protocol, path,
                         error.getType() == null ? AzureFilesMetricsUtil.UNKNOWN : error.getType().getName());
+                AzureFilesTracingUtil.setParentContext(properties, parentCtx);
                 StrandMetadata metadata = new StrandMetadata(isConcurrentSafe, properties);
                 Object[] args = arity >= 2 ? new Object[]{error, ctx.caller} : new Object[]{error};
 
@@ -500,9 +501,6 @@ public final class Listener {
                     closeQuietly(ctx, inputStream);
                     handedOff = handleBindingFailure(listenerObj, ctx, serviceContext, handler, item, path, e, null,
                             parentCtx);
-                    if (!handedOff) {
-                        AzureFilesTracingUtil.finishFileLifecycleSpan(parentCtx);
-                    }
                     parentCtx = null;
                     return;
                 }
@@ -536,9 +534,6 @@ public final class Listener {
                             handler.methodName(), AzureFilesMetricsUtil.OUTCOME_FAILURE, bindingDurationMs);
                     handedOff = handleBindingFailure(listenerObj, ctx, serviceContext, handler, item, path, e, bytes,
                             parentCtx);
-                    if (!handedOff) {
-                        AzureFilesTracingUtil.finishFileLifecycleSpan(parentCtx);
-                    }
                     parentCtx = null;
                     return;
                 }

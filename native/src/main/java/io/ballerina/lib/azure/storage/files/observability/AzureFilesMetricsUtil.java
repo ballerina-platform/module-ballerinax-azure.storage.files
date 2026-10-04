@@ -83,9 +83,6 @@ public final class AzureFilesMetricsUtil {
     /** Event-type tag value: a file was added or created. */
     public static final String EVENT_TYPE_CHANGE = "create";
 
-    /** Event-type tag value: a file was deleted. */
-    public static final String EVENT_TYPE_DELETE = "delete";
-
     /** Event-type tag value: content-binding error dispatched to {@code onError}. */
     public static final String EVENT_TYPE_ERROR = "error";
 

@@ -67,7 +67,7 @@ public final class CopyOps {
                                          BString destinationPath, Object options) {
         AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
                 BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE,
-                sourceUrl.getValue());
+                destinationPath.getValue());
         Object result = BallerinaAzureClient.invoke(env,
                 () -> startCopy(self, sourceUrl.getValue(), destinationPath, options));
         return AzureFilesTracingUtil.sendTraces(result, env);

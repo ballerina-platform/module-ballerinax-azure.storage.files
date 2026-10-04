@@ -514,7 +514,7 @@ These are derived from the `file_events_total` counter by filtering on tags:
 | Files skipped | `file_events_total{file_stage="found", outcome="skipped"}` |
 | Files handled | `file_events_total{file_stage="handled"}` |
 | Files cleaned up | `file_events_total{file_stage="cleaned_up"}` |
-| Client operations | `requests_total_value{action_type="client_operation"}` |
+| Client operations | `requests_total{action_type="client_operation"}` |
 
 ### 7.2 Tags
 

@@ -36,6 +36,8 @@ import io.ballerina.runtime.api.values.BArray;
 import io.ballerina.runtime.api.values.BObject;
 import io.ballerina.runtime.api.values.BString;
 import io.ballerina.runtime.api.values.BXml;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -52,6 +54,8 @@ import java.util.Arrays;
  * stream, download as a Ballerina stream).
  */
 public final class TransferOps {
+
+    private static final Logger log = LoggerFactory.getLogger(TransferOps.class);
 
     // Key under which an open content input stream is stored on a stream generator object.
     private static final String NATIVE_INPUT_STREAM = "inputStream";
@@ -180,17 +184,14 @@ public final class TransferOps {
                     client.downloadToFileWithResponse(destinationPath.getValue(),
                             downloadToFileRange(OptionsReader.range(args.range())), null, null);
                 }
-                long transferredBytes;
                 try {
-                    transferredBytes = Files.size(Path.of(destinationPath.getValue()));
+                    long transferredBytes = Files.size(Path.of(destinationPath.getValue()));
+                    AzureFilesMetricsUtil.reportBytesTransferred(BallerinaAzureClient.getRemoteUrl(self),
+                            BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.CONTEXT_CLIENT,
+                            AzureFilesMetricsUtil.OPERATION_TYPE_GET, transferredBytes);
                 } catch (IOException e) {
-                    throw FilesErrorCreator.clientError(
-                            "cannot inspect local file " + destinationPath.getValue() + ": "
-                                    + BallerinaAzureClient.describe(e), e);
+                    log.debug("Failed to stat downloaded file for metrics", e);
                 }
-                AzureFilesMetricsUtil.reportBytesTransferred(BallerinaAzureClient.getRemoteUrl(self),
-                        BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.CONTEXT_CLIENT,
-                        AzureFilesMetricsUtil.OPERATION_TYPE_GET, transferredBytes);
             } catch (UncheckedIOException e) {
                 throw FilesErrorCreator.clientError(
                         "cannot write local file " + destinationPath.getValue() + ": "

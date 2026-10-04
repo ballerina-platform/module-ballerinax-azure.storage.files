@@ -244,53 +244,17 @@ public final class AzureFilesTracingUtil {
                 observerContext.addTag(AzureFilesObserverContext.TAG_HANDLER_NAME, handlerName);
             }
             if (fileSize >= 0) {
-                observerContext.addProperty(AzureFilesObserverContext.TAG_FILE_SIZE, fileSize);
+                observerContext.addTag(AzureFilesObserverContext.TAG_FILE_SIZE, String.valueOf(fileSize));
             }
             if (modifiedTime >= 0) {
-                observerContext.addProperty(AzureFilesObserverContext.TAG_FILE_MODIFIED_TIME, modifiedTime);
+                observerContext.addTag(AzureFilesObserverContext.TAG_FILE_MODIFIED_TIME,
+                        String.valueOf(modifiedTime));
             }
             Map<String, Object> properties = new HashMap<>();
             properties.put(ObservabilityConstants.KEY_OBSERVER_CONTEXT, observerContext);
             return properties;
         } catch (Throwable t) {
             log.debug("Failed to create file stage strand properties", t);
-            return null;
-        }
-    }
-
-    /**
-     * Creates strand properties for a cleanup (post-processing) span.
-     *
-     * @param context       context tag
-     * @param url           remote URL
-     * @param protocol      wire protocol
-     * @param cleanupAction cleanup action type (move, delete, none)
-     * @param handlerName   handler method name that triggered this cleanup
-     * @return properties map, or {@code null} if observability is disabled
-     */
-    public static Map<String, Object> createCleanupStrandProperties(String context, String url, String protocol,
-                                                                     String cleanupAction, String handlerName) {
-        if (!ObserveUtils.isObservabilityEnabled()) {
-            return null;
-        }
-        try {
-            AzureFilesObserverContext observerContext = new AzureFilesObserverContext(context, url, protocol);
-            observerContext.addTag(AzureFilesObserverContext.TAG_ACTION_TYPE, AzureFilesMetricsUtil.ACTION_TYPE_EVENT);
-            String instanceUrl = AzureFilesMetricsUtil.getInstanceUrl();
-            if (instanceUrl != null) {
-                observerContext.addTag(AzureFilesObserverContext.TAG_INSTANCE_URL, instanceUrl);
-            }
-            observerContext.addTag(AzureFilesObserverContext.TAG_FILE_STAGE,
-                    AzureFilesMetricsUtil.FILE_STAGE_CLEANED_UP);
-            observerContext.addTag(AzureFilesObserverContext.TAG_CLEANUP_ACTION, cleanupAction);
-            if (handlerName != null) {
-                observerContext.addTag(AzureFilesObserverContext.TAG_HANDLER_NAME, handlerName);
-            }
-            Map<String, Object> properties = new HashMap<>();
-            properties.put(ObservabilityConstants.KEY_OBSERVER_CONTEXT, observerContext);
-            return properties;
-        } catch (Throwable t) {
-            log.debug("Failed to create cleanup strand properties", t);
             return null;
         }
     }
@@ -321,33 +285,6 @@ public final class AzureFilesTracingUtil {
         } catch (Throwable t) {
             log.debug("Failed to create error strand properties", t);
             return null;
-        }
-    }
-
-    /**
-     * Adds outcome and optional error type tags to strand properties.
-     *
-     * @param strandProperties the strand properties map (may be null)
-     * @param outcome          success or failure
-     * @param errorType        error type, or null
-     */
-    public static void addOutcomeToStrandProperties(Map<String, Object> strandProperties, String outcome,
-                                                     String errorType) {
-        if (strandProperties == null) {
-            return;
-        }
-        try {
-            AzureFilesObserverContext ctx = (AzureFilesObserverContext) strandProperties.get(
-                    ObservabilityConstants.KEY_OBSERVER_CONTEXT);
-            if (ctx == null) {
-                return;
-            }
-            ctx.addTag(AzureFilesObserverContext.TAG_OUTCOME, outcome);
-            if (errorType != null) {
-                ctx.addTag(AzureFilesObserverContext.TAG_ERROR_TYPE, errorType);
-            }
-        } catch (Throwable t) {
-            log.debug("Failed to add outcome to strand properties", t);
         }
     }
 
@@ -409,52 +346,6 @@ public final class AzureFilesTracingUtil {
     }
 
     /**
-     * Tags the auto-instrumented span of the current frame as a poll cycle span.
-     *
-     * @param env      the current Ballerina environment
-     * @param url      remote URL
-     * @param protocol wire protocol
-     */
-    public static void sendPollMetricsData(Environment env, String url, String protocol) {
-        try {
-            ObserverContext ctx = ObserveUtils.getObserverContextOfCurrentFrame(env);
-            if (ctx == null) {
-                return;
-            }
-            ctx.addTag(AzureFilesObserverContext.TAG_MODULE, AzureFilesMetricsUtil.MODULE_AZURE_FILES);
-            ctx.addTag(AzureFilesObserverContext.TAG_ACTION_TYPE, AzureFilesMetricsUtil.ACTION_TYPE_POLL);
-            ctx.addTag(AzureFilesObserverContext.TAG_CONTEXT, AzureFilesMetricsUtil.CONTEXT_LISTENER);
-            ctx.addTag(AzureFilesObserverContext.TAG_REMOTE_URL, url != null ? url : AzureFilesMetricsUtil.UNKNOWN);
-            ctx.addTag(AzureFilesObserverContext.TAG_PROTOCOL,
-                    protocol != null ? protocol : AzureFilesMetricsUtil.UNKNOWN);
-            String instanceUrl = AzureFilesMetricsUtil.getInstanceUrl();
-            if (instanceUrl != null) {
-                ctx.addTag(AzureFilesObserverContext.TAG_INSTANCE_URL, instanceUrl);
-            }
-        } catch (Throwable t) {
-            log.debug("Failed to send poll metrics data", t);
-        }
-    }
-
-    /**
-     * Adds the outcome tag to the poll span on the current frame.
-     *
-     * @param env     the current Ballerina environment
-     * @param outcome success or failure
-     */
-    public static void sendPollOutcome(Environment env, String outcome) {
-        try {
-            ObserverContext ctx = ObserveUtils.getObserverContextOfCurrentFrame(env);
-            if (ctx == null) {
-                return;
-            }
-            ctx.addTag(AzureFilesObserverContext.TAG_OUTCOME, outcome);
-        } catch (Throwable t) {
-            log.debug("Failed to send poll outcome", t);
-        }
-    }
-
-    /**
      * Adds {@code error=true} and {@code error.type} tags to the auto-instrumented span for the
      * currently executing native external method.
      *
@@ -477,12 +368,12 @@ public final class AzureFilesTracingUtil {
     }
 
     /**
-     * Adds file.size and file.modified_time as span-only tags to strand properties.
+     * Adds file.size, file.modified_time, and file.path as tags to strand properties.
      *
      * @param strandProperties the strand properties map (may be null)
      * @param fileSize         file size in bytes, or -1 if unknown
      * @param modifiedTime     last-modified timestamp, or -1 if unknown
-     * @param filePath         file path for span-only tag
+     * @param filePath         file path tag
      */
     public static void addFileMetadataToStrandProperties(Map<String, Object> strandProperties,
                                                           long fileSize, long modifiedTime, String filePath) {
@@ -496,13 +387,13 @@ public final class AzureFilesTracingUtil {
                 return;
             }
             if (fileSize >= 0) {
-                ctx.addProperty(AzureFilesObserverContext.TAG_FILE_SIZE, fileSize);
+                ctx.addTag(AzureFilesObserverContext.TAG_FILE_SIZE, String.valueOf(fileSize));
             }
             if (modifiedTime >= 0) {
-                ctx.addProperty(AzureFilesObserverContext.TAG_FILE_MODIFIED_TIME, modifiedTime);
+                ctx.addTag(AzureFilesObserverContext.TAG_FILE_MODIFIED_TIME, String.valueOf(modifiedTime));
             }
             if (filePath != null) {
-                ctx.addProperty(AzureFilesObserverContext.TAG_FILE_PATH, filePath);
+                ctx.addTag(AzureFilesObserverContext.TAG_FILE_PATH, filePath);
             }
         } catch (Throwable t) {
             log.debug("Failed to add file metadata to strand properties", t);
