@@ -3,7 +3,7 @@
 _Owners_: @YasanPunch \
 _Reviewers_: @niveathika \
 _Created_: 2026/07/13 \
-_Updated_: 2026/08/13 \
+_Updated_: 2026/09/08 \
 _Edition_: Swan Lake
 
 ## Introduction
@@ -46,6 +46,10 @@ The official implementation aligns with this specification. Any deviation qualif
    * 5.6 [Delivery Semantics](#56-delivery-semantics)
    * 5.7 [The Caller](#57-the-caller)
 6. [Errors](#6-errors)
+7. [Observability](#7-observability)
+   * 7.1 [Metrics](#71-metrics)
+   * 7.2 [Tags](#72-tags)
+   * 7.3 [File Lifecycle Tracing](#73-file-lifecycle-tracing)
 
 ## 1. Overview
 
@@ -472,3 +476,106 @@ if properties is files:NotFoundError {
     return properties;
 }
 ```
+
+## 7. Observability
+
+The module publishes metrics and traces that follow the unified file integration observability specification shared across all Ballerina file modules (FTP, SMB, Azure Files, and future modules). All metric names use the `file_` prefix, and the `module` tag distinguishes this module (`azure_files`) from others, so a single dashboard can monitor every file integration through shared panels filtered by module.
+
+Observability is active only when the Ballerina runtime's observability subsystem is enabled (the `observabilityIncluded` flag in `Ballerina.toml` and the runtime configuration). When observability is disabled, no metrics or spans are created, and no overhead is introduced.
+
+### 7.1 Metrics
+
+#### Gauges
+
+| Metric | Description |
+|--------|-------------|
+| `file_active_connections` | Number of open connections (client and listener). Incremented on `init`, decremented on listener stop. |
+| `file_databinding_duration_seconds` | Time to fetch and convert file content into the handler's target type, in seconds. Configured with percentiles p50, p75, p90, p95, p99 over a 5-minute sliding window. |
+| `file_resource_execution_duration_seconds` | Elapsed time of the handler method invocation, in seconds. Same percentile configuration as the data binding duration. |
+
+The data binding duration covers the full pipeline: reading bytes from Azure Files and converting them to the handler's parameter type (e.g. `json`, `xml`, `record {}[]`). For streaming handlers, it measures stream creation time only; actual data transfer is lazy.
+
+#### Explicit Counters
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `file_bytes_transferred_total` | Counter | Bytes successfully read or written across operations. A sum of bytes, not a count of spans. Published for client materialized and streaming reads, client uploads, range writes, local-file transfers, and listener content reads. |
+| `file_events_total` | Counter | Total file lifecycle and poll events. Every increment carries the same label keys, using `none` when not applicable: `action.type`, `file.stage`, `event.type`, `operation.type`, `outcome`, `error.type`, `failure.reason`, `handler.name`, `cleanup.action`, `watched.path`. |
+
+#### Queried Metrics
+
+These are derived from the `file_events_total` counter by filtering on tags:
+
+| Logical metric | PromQL derivation |
+|----------------|-------------------|
+| Poll cycles | `file_events_total{action_type="poll_cycle"}` |
+| Files found | `file_events_total{file_stage="found"}` |
+| Files dispatched | `file_events_total{file_stage="dispatched"}` |
+| Files skipped | `file_events_total{file_stage="found", outcome="skipped"}` |
+| Files handled | `file_events_total{file_stage="handled"}` |
+| Files cleaned up | `file_events_total{file_stage="cleaned_up"}` |
+| Client operations | `requests_total{action_type="client_operation"}` |
+
+### 7.2 Tags
+
+All tags use the sentinel value `none` when not applicable for a given stage, rather than omitting the tag, to ensure consistent label sets across all increments of a metric.
+
+#### Identity Tags
+
+| Tag | Values | Scope | Notes |
+|-----|--------|-------|-------|
+| `module` | `azure_files` | All | Identifies this module. |
+| `protocol` | `https`, `http` | All | Wire protocol, extracted from the service URL at init. |
+| `type` | `client`, `listener` | All | Whether this is a client or listener operation. |
+| `remote.url` | host or host:port | All | The Azure storage endpoint. |
+| `watched.path` | Monitored directory path | Listener | Present on listener events and poll cycles only. |
+| `host` | Local hostname | All | Hostname of the current instance; omitted if resolution fails. |
+
+#### Action Tags
+
+| Tag | Values | Scope | Notes |
+|-----|--------|-------|-------|
+| `action.type` | `poll_cycle`, `file_event`, `client_operation` | All | `poll_cycle` on poll completions, `file_event` on listener file lifecycle events, `client_operation` on client API calls. |
+| `file.stage` | `found`, `dispatched`, `handled`, `cleaned_up` | Listener | Maps to the four-stage file lifecycle. |
+| `event.type` | `create`, `delete`, `error` | Listener | Type of listener event. |
+| `operation.type` | `get`, `put`, `manage` | All | `get` for read operations (getFile, download, list, getProperties, has*), `put` for write operations (upload, createFile, uploadRange), `manage` for administrative operations (delete, rename, copy, mkdir, setMetadata). |
+| `handler.name` | Handler method name | Listener | Identifies which handler processed the file (e.g. `onFileJson`, `onFileCsv`). |
+| `cleanup.action` | `move`, `delete` | Listener | Present on `file.stage=cleaned_up` events only. |
+
+#### Outcome Tags
+
+| Tag | Values | Scope | Notes |
+|-----|--------|-------|-------|
+| `outcome` | `success`, `failure`, `skipped` | All | Result of an operation. `skipped` indicates a file found but not matched to any handler. |
+| `error.type` | Error type name | All | Only present when `outcome=failure`. Set to the Ballerina error type name (e.g. `NotFoundError`, `AuthorizationError`, `ContentBindingError`). |
+
+#### File-Scoped Tags (Trace Only)
+
+These tags appear on trace spans only, excluded from metrics to avoid cardinality explosion:
+
+| Tag | Scope | Notes |
+|-----|-------|-------|
+| `file.path` | Traces | Full path of the file. On client operation spans and listener handler spans. |
+| `destination.path` | Traces | Target path for rename, copy operations. |
+| `file.size` | Traces | File size in bytes, on listener handler spans. |
+| `file.modified_time` | Traces | Last-modified timestamp, on listener handler spans. |
+
+### 7.3 File Lifecycle Tracing
+
+Every file processed by the listener passes through up to four stages. A parent span (`file-lifecycle`) covers the entire lifecycle of a single file, and each stage produces metrics and, where a Ballerina method is invoked, a child span parented to it.
+
+**Stage 1 — Found.** The listener's poll cycle discovers the file. If a handler matches, `file_events_total` is incremented with `file.stage=found`. If no handler matches, a single increment with `file.stage=found, outcome=skipped, error.type=no_handler_matched` is published and the file goes no further.
+
+**Stage 2 — Dispatched.** The routing logic matches the file to a specific content handler. `file_events_total` is incremented with `file.stage=dispatched` and `handler.name` set to the matched handler method name.
+
+**Stage 3 — Handled.** The file content is read from the service, converted to the expected Ballerina type, and the matched handler method is invoked. Two duration metrics are recorded: `file_databinding_duration_seconds` for the content fetch and conversion, and `file_resource_execution_duration_seconds` for the handler method execution. `file_events_total` is incremented with `file.stage=handled` and the outcome. The handler invocation creates a child span carrying trace-only file metadata (`file.path`, `file.size`, `file.modified_time`, `event.type=create`).
+
+**Stage 4 — Cleaned Up.** After the handler completes, a post-processing action executes if configured via `@files:FunctionConfig`: either `delete` (remove the file) or `move` (move the file to a destination directory). `file_events_total` is incremented with `file.stage=cleaned_up`, `cleanup.action`, and the outcome. On failure, `error.type` is set to `delete_failed` or `move_failed`.
+
+#### Client Operation Tracing
+
+Every client operation enriches its auto-instrumented span with the identity tags (`module`, `type=client`, `remote.url`, `protocol`), the action tags (`action.type=client_operation`, `operation.type`), and trace-only file path tags. On completion, the span carries `outcome=success` or `outcome=failure` with the `error.type` tag naming the Ballerina error type.
+
+#### Connection Tracking
+
+The `file_active_connections` gauge is incremented when a `Client`, `AdminClient`, or `Listener` is initialized and decremented when a listener is stopped. The clients do not expose a `close` method because the Azure SDK manages connection pooling internally; the gauge tracks the number of live Ballerina client and listener instances rather than raw TCP connections.

@@ -18,6 +18,8 @@
 
 package io.ballerina.lib.azure.storage.files.client;
 
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesMetricsUtil;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesTracingUtil;
 import io.ballerina.lib.azure.storage.files.util.BallerinaAzureClient;
 import io.ballerina.lib.azure.storage.files.util.RecordMapper;
 import io.ballerina.lib.azure.storage.files.util.ValueUtils;
@@ -36,21 +38,30 @@ public final class ShareOps {
 
     /** Fetches the bound share's properties as a {@code ShareProperties} record. */
     public static Object getShareProperties(Environment env, BObject self) {
-        return BallerinaAzureClient.invoke(env,
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_GET, null);
+        Object result = BallerinaAzureClient.invoke(env,
                 () -> RecordMapper.shareProperties(BallerinaAzureClient.getShareClient(self).getProperties()));
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Replaces the bound share's user-defined metadata. */
     public static Object setShareMetadata(Environment env, BObject self, BMap<BString, BString> metadata) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE, null);
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             BallerinaAzureClient.getShareClient(self).setMetadata(ValueUtils.toStringMap(metadata));
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Reports the bound share's current usage in bytes. */
     public static Object getShareUsage(Environment env, BObject self) {
-        return BallerinaAzureClient.invoke(env,
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_GET, null);
+        Object result = BallerinaAzureClient.invoke(env,
                 () -> BallerinaAzureClient.getShareClient(self).getStatistics().getShareUsageInBytes());
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 }

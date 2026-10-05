@@ -25,6 +25,9 @@ import com.azure.storage.file.share.models.ShareStorageException;
 import com.azure.storage.file.share.options.ShareFileRenameOptions;
 import com.azure.storage.file.share.options.ShareListFilesAndDirectoriesOptions;
 import com.azure.xml.XmlReader;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesMetricsUtil;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesObserverContext;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesTracingUtil;
 import io.ballerina.lib.azure.storage.files.util.BallerinaAzureClient;
 import io.ballerina.lib.azure.storage.files.util.ContentBinder;
 import io.ballerina.lib.azure.storage.files.util.FilesErrorCreator;
@@ -47,8 +50,10 @@ import io.ballerina.runtime.api.values.BError;
 import io.ballerina.runtime.api.values.BMap;
 import io.ballerina.runtime.api.values.BObject;
 import io.ballerina.runtime.api.values.BString;
+import io.ballerina.runtime.observability.tracer.BSpan;
 
 import java.io.ByteArrayOutputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -153,12 +158,17 @@ public final class Listener {
             }
 
             BObject client = caller.getObjectValue(BallerinaAzureClient.CALLER_CLIENT_FIELD);
-            listenerObj.addNativeData(BallerinaAzureClient.NATIVE_SHARE_CLIENT,
-                    BallerinaAzureClient.getShareClient(client));
+            ShareClient shareClient = BallerinaAzureClient.getShareClient(client);
+            listenerObj.addNativeData(BallerinaAzureClient.NATIVE_SHARE_CLIENT, shareClient);
+
+            String accountUrl = shareClient.getAccountUrl();
+            String remoteUrl = BallerinaAzureClient.extractHost(accountUrl);
+            String protocol = BallerinaAzureClient.extractProtocol(accountUrl);
 
             boolean laxDataBinding = Boolean.TRUE.equals(config.get(LAX_DATA_BINDING));
             listenerObj.addNativeData(NATIVE_LISTENER_CONTEXT,
-                    new ListenerContext(caller, shareName.getValue(), laxDataBinding));
+                    new ListenerContext(caller, shareName.getValue(), laxDataBinding, remoteUrl, protocol));
+            AzureFilesMetricsUtil.reportNewConnection(remoteUrl, protocol, AzureFilesMetricsUtil.CONTEXT_LISTENER);
             return null;
         } catch (BError e) {
             return e;
@@ -256,9 +266,14 @@ public final class Listener {
                 return null;
             }
             ctx.runtime = env.getRuntime();
+            String watchedPath = serviceContext.watchedPath();
             try {
                 scan(listenerObj, ctx, serviceContext);
+                AzureFilesMetricsUtil.reportPollCycle(ctx.url, ctx.protocol, watchedPath,
+                        AzureFilesMetricsUtil.OUTCOME_SUCCESS);
             } catch (Throwable e) {
+                AzureFilesMetricsUtil.reportPollCycle(ctx.url, ctx.protocol, watchedPath,
+                        AzureFilesMetricsUtil.OUTCOME_FAILURE);
                 BError mapped = BallerinaAzureClient.mapFailure(e);
                 invokeOnError(ctx, mapped);
                 return mapped;
@@ -270,7 +285,7 @@ public final class Listener {
     // Invokes the optional onError handler on a virtual thread as a pure notification: any
     // error it returns is printed and swallowed, and no post-processing applies.
     private static void invokeOnError(ListenerContext ctx, BError error) {
-        invokeOnError(ctx, error, null, null, null, null, null);
+        invokeOnError(ctx, error, null, null, null, null, null, null);
     }
 
     // Invokes the optional onError handler on a virtual thread. When post-process actions are
@@ -280,7 +295,7 @@ public final class Listener {
     // the consume action has landed, so the caller must not release it.
     private static boolean invokeOnError(ListenerContext ctx, BError error, BObject listenerObj,
                                       PostAction afterProcess, PostAction afterError,
-                                      String path, String eTag) {
+                                      String path, String eTag, AzureFilesObserverContext parentCtx) {
         BObject service = ctx.service;
         ServiceContext serviceContext = ctx.serviceContext;
         int arity = serviceContext == null ? 0 : serviceContext.onErrorArity();
@@ -288,10 +303,16 @@ public final class Listener {
             return false;
         }
         Thread.startVirtualThread(() -> {
+            BSpan errorSpan = AzureFilesTracingUtil.createChildSpan(parentCtx, "file-error",
+                    AzureFilesMetricsUtil.FILE_STAGE_HANDLED, null, ON_ERROR);
             try {
                 ObjectType serviceType = (ObjectType) TypeUtils.getReferredType(TypeUtils.getType(service));
                 boolean isConcurrentSafe = serviceType.isIsolated() && serviceType.isIsolated(ON_ERROR);
-                StrandMetadata metadata = new StrandMetadata(isConcurrentSafe, null);
+                Map<String, Object> properties = AzureFilesTracingUtil.createErrorStrandProperties(
+                        AzureFilesMetricsUtil.CONTEXT_LISTENER, ctx.url, ctx.protocol, path,
+                        error.getType() == null ? AzureFilesMetricsUtil.UNKNOWN : error.getType().getName());
+                AzureFilesTracingUtil.setParentContext(properties, parentCtx);
+                StrandMetadata metadata = new StrandMetadata(isConcurrentSafe, properties);
                 Object[] args = arity >= 2 ? new Object[]{error, ctx.caller} : new Object[]{error};
 
                 boolean handled;
@@ -315,13 +336,16 @@ public final class Listener {
                 }
                 if (listenerObj != null) {
                     PostAction action = handled ? afterProcess : afterError;
-                    postProcess(ctx, listenerObj, serviceContext, action, path, eTag);
+                    postProcess(ctx, listenerObj, serviceContext, action, path, eTag, ON_ERROR, parentCtx);
                 }
             } finally {
                 // The takeover path holds the guard until its consume action lands, so a
                 // binding-failed file is not re-dispatched while onError is still running.
                 if (listenerObj != null) {
                     ctx.inProgress.remove(path);
+                }
+                if (errorSpan != null) {
+                    errorSpan.finishSpan();
                 }
             }
         });
@@ -340,6 +364,8 @@ public final class Listener {
         ListenerContext ctx = context(listenerObj);
         if (ctx != null) {
             ctx.stopped = true;
+            AzureFilesMetricsUtil.reportConnectionClose(ctx.url, ctx.protocol,
+                    AzureFilesMetricsUtil.CONTEXT_LISTENER);
         }
         return null;
     }
@@ -407,6 +433,7 @@ public final class Listener {
         // Set when a binding failure hands the file to the onError takeover thread, which then
         // owns the in-progress guard and releases it after its consume action.
         boolean handedOff = false;
+        AzureFilesObserverContext parentCtx = null;
         try {
             // Snapshot the service so a concurrent detach cannot null it mid-dispatch; if it is
             // already gone, leave the file unconsumed for a later poll.
@@ -417,23 +444,45 @@ public final class Listener {
             HandlerConfig handler = resolveHandler(serviceContext, item.getName());
             if (handler == null) {
                 logDebug(ctx, "azure.storage.files listener: no handler for " + path + ", skipping");
+                // Stage 1: found + skipped (no handler matched)
+                AzureFilesMetricsUtil.reportFileStage(ctx.url, ctx.protocol, serviceContext.watchedPath(),
+                        AzureFilesMetricsUtil.FILE_STAGE_FOUND, AzureFilesMetricsUtil.OUTCOME_SKIPPED,
+                        AzureFilesMetricsUtil.FAILURE_NO_HANDLER_MATCHED, null);
                 return;
             }
+
+            // Create per-file parent span covering the entire lifecycle
+            parentCtx = AzureFilesTracingUtil.createFileLifecycleContext(ctx.url, ctx.protocol, path);
+
+            // Stage 1: File found
+            AzureFilesMetricsUtil.reportFileStage(ctx.url, ctx.protocol, serviceContext.watchedPath(),
+                    AzureFilesMetricsUtil.FILE_STAGE_FOUND, null, null, null);
+
+            // Stage 2: File dispatched to handler
+            AzureFilesMetricsUtil.reportFileStage(ctx.url, ctx.protocol, serviceContext.watchedPath(),
+                    AzureFilesMetricsUtil.FILE_STAGE_DISPATCHED, null, null, handler.methodName());
 
             Object content;
             Type referredContentType = handler.contentType() == null
                     ? null : TypeUtils.getReferredType(handler.contentType());
 
+            long bindingStart = System.nanoTime();
             if (referredContentType instanceof StreamType streamContentType) {
                 // A stream handler skips the eager download: the file is read chunk by chunk.
                 InputStream inputStream;
                 try {
                     inputStream = BallerinaAzureClient.getShareClient(listenerObj)
                             .getFileClient(path).openInputStream();
+                    inputStream = new ObservedInputStream(inputStream, ctx.url, ctx.protocol);
                 } catch (RuntimeException e) {
+                    long bindingDurationMs = (System.nanoTime() - bindingStart) / 1_000_000;
+                    AzureFilesMetricsUtil.reportDatabindingDuration(ctx.url, ctx.protocol,
+                            handler.methodName(), AzureFilesMetricsUtil.OUTCOME_FAILURE, bindingDurationMs);
                     logWarn(ctx, "azure.storage.files listener: cannot read " + path
                             + "; will retry next poll: " + BallerinaAzureClient.describe(e));
                     invokeOnError(ctx, BallerinaAzureClient.mapFailure(e));
+                    AzureFilesTracingUtil.finishFileLifecycleSpan(parentCtx);
+                    parentCtx = null;
                     return;
                 }
                 try {
@@ -442,9 +491,17 @@ public final class Listener {
                                     streamContentType.getConstrainedType(), ctx.laxDataBinding)
                             : ContentStreams.createByteStream(inputStream,
                                     streamContentType.getConstrainedType());
+                    long bindingDurationMs = (System.nanoTime() - bindingStart) / 1_000_000;
+                    AzureFilesMetricsUtil.reportDatabindingDuration(ctx.url, ctx.protocol,
+                            handler.methodName(), AzureFilesMetricsUtil.OUTCOME_SUCCESS, bindingDurationMs);
                 } catch (RuntimeException e) {
+                    long bindingDurationMs = (System.nanoTime() - bindingStart) / 1_000_000;
+                    AzureFilesMetricsUtil.reportDatabindingDuration(ctx.url, ctx.protocol,
+                            handler.methodName(), AzureFilesMetricsUtil.OUTCOME_FAILURE, bindingDurationMs);
                     closeQuietly(ctx, inputStream);
-                    handedOff = handleBindingFailure(listenerObj, ctx, serviceContext, handler, item, path, e, null);
+                    handedOff = handleBindingFailure(listenerObj, ctx, serviceContext, handler, item, path, e, null,
+                            parentCtx);
+                    parentCtx = null;
                     return;
                 }
             } else {
@@ -452,15 +509,32 @@ public final class Listener {
                 try {
                     bytes = download(listenerObj, path);
                 } catch (RuntimeException e) {
+                    long bindingDurationMs = (System.nanoTime() - bindingStart) / 1_000_000;
+                    AzureFilesMetricsUtil.reportDatabindingDuration(ctx.url, ctx.protocol,
+                            handler.methodName(), AzureFilesMetricsUtil.OUTCOME_FAILURE, bindingDurationMs);
                     logWarn(ctx, "azure.storage.files listener: cannot read " + path
                             + "; will retry next poll: " + BallerinaAzureClient.describe(e));
                     invokeOnError(ctx, BallerinaAzureClient.mapFailure(e));
+                    AzureFilesTracingUtil.finishFileLifecycleSpan(parentCtx);
+                    parentCtx = null;
                     return;
                 }
+                // Report bytes transferred for the listener content read
+                AzureFilesMetricsUtil.reportBytesTransferred(ctx.url, ctx.protocol,
+                        AzureFilesMetricsUtil.CONTEXT_LISTENER, AzureFilesMetricsUtil.OPERATION_TYPE_GET,
+                        bytes.length);
                 try {
                     content = bindContent(ctx, handler, bytes);
+                    long bindingDurationMs = (System.nanoTime() - bindingStart) / 1_000_000;
+                    AzureFilesMetricsUtil.reportDatabindingDuration(ctx.url, ctx.protocol,
+                            handler.methodName(), AzureFilesMetricsUtil.OUTCOME_SUCCESS, bindingDurationMs);
                 } catch (RuntimeException e) {
-                    handedOff = handleBindingFailure(listenerObj, ctx, serviceContext, handler, item, path, e, bytes);
+                    long bindingDurationMs = (System.nanoTime() - bindingStart) / 1_000_000;
+                    AzureFilesMetricsUtil.reportDatabindingDuration(ctx.url, ctx.protocol,
+                            handler.methodName(), AzureFilesMetricsUtil.OUTCOME_FAILURE, bindingDurationMs);
+                    handedOff = handleBindingFailure(listenerObj, ctx, serviceContext, handler, item, path, e, bytes,
+                            parentCtx);
+                    parentCtx = null;
                     return;
                 }
             }
@@ -469,16 +543,45 @@ public final class Listener {
             String parentPath = slash < 0 ? "" : path.substring(0, slash);
             BMap<BString, Object> fileInfo = RecordMapper.fileInfo(item, parentPath, ctx.shareName);
 
-            Object result = invokeHandler(ctx, service, handler, content, fileInfo);
+            // Stage 3: Create strand properties for handler invocation with file metadata
+            long fileSize = item.getFileSize() != null ? item.getFileSize() : -1;
+            long modifiedTime = item.getProperties() != null && item.getProperties().getLastModified() != null
+                    ? item.getProperties().getLastModified().toInstant().toEpochMilli() : -1;
+            Map<String, Object> strandProperties = AzureFilesTracingUtil.createFileStageStrandProperties(
+                    AzureFilesMetricsUtil.CONTEXT_LISTENER, ctx.url, ctx.protocol,
+                    AzureFilesMetricsUtil.EVENT_TYPE_CHANGE, AzureFilesMetricsUtil.FILE_STAGE_HANDLED,
+                    handler.methodName(), fileSize, modifiedTime);
+            AzureFilesTracingUtil.addFileMetadataToStrandProperties(strandProperties, fileSize, modifiedTime, path);
+            AzureFilesTracingUtil.setParentContext(strandProperties, parentCtx);
+
+            long handlerStart = System.nanoTime();
+            Object result = invokeHandler(ctx, service, handler, content, fileInfo, strandProperties);
+            long handlerDurationMs = (System.nanoTime() - handlerStart) / 1_000_000;
 
             if (result instanceof BError error) {
+                String errorType = error.getType() != null ? error.getType().getName() : AzureFilesMetricsUtil.UNKNOWN;
+                // Stage 3 metric: handled with failure
+                AzureFilesMetricsUtil.reportFileStage(ctx.url, ctx.protocol, serviceContext.watchedPath(),
+                        AzureFilesMetricsUtil.FILE_STAGE_HANDLED, AzureFilesMetricsUtil.OUTCOME_FAILURE,
+                        errorType, handler.methodName());
+                AzureFilesMetricsUtil.reportResourceExecutionDuration(ctx.url, ctx.protocol,
+                        handler.methodName(), AzureFilesMetricsUtil.OUTCOME_FAILURE, handlerDurationMs);
                 // The handler already saw its own error, so onError is not notified; the error is
                 // printed so the failure stays visible without a logging backend.
                 error.printStackTrace();
-                postProcess(ctx, listenerObj, serviceContext, handler.afterError(), path, listedETag(item));
+                postProcess(ctx, listenerObj, serviceContext, handler.afterError(), path, listedETag(item),
+                        handler.methodName(), parentCtx);
             } else {
-                postProcess(ctx, listenerObj, serviceContext, handler.afterProcess(), path, listedETag(item));
+                // Stage 3 metric: handled with success
+                AzureFilesMetricsUtil.reportFileStage(ctx.url, ctx.protocol, serviceContext.watchedPath(),
+                        AzureFilesMetricsUtil.FILE_STAGE_HANDLED, AzureFilesMetricsUtil.OUTCOME_SUCCESS,
+                        null, handler.methodName());
+                AzureFilesMetricsUtil.reportResourceExecutionDuration(ctx.url, ctx.protocol,
+                        handler.methodName(), AzureFilesMetricsUtil.OUTCOME_SUCCESS, handlerDurationMs);
+                postProcess(ctx, listenerObj, serviceContext, handler.afterProcess(), path, listedETag(item),
+                        handler.methodName(), parentCtx);
             }
+            parentCtx = null; // ownership transferred to postProcess
         } catch (Throwable e) {
             logError(ctx, "azure.storage.files listener: unexpected dispatch failure for " + path
                     + ": " + BallerinaAzureClient.describe(e));
@@ -487,6 +590,7 @@ public final class Listener {
             if (!handedOff) {
                 ctx.inProgress.remove(path);
             }
+            AzureFilesTracingUtil.finishFileLifecycleSpan(parentCtx);
         }
     }
 
@@ -497,17 +601,24 @@ public final class Listener {
     private static boolean handleBindingFailure(BObject listenerObj, ListenerContext ctx,
                                              ServiceContext serviceContext, HandlerConfig handler,
                                              ShareFileItem item, String path, RuntimeException e,
-                                             byte[] content) {
+                                             byte[] content, AzureFilesObserverContext parentCtx) {
         String message = e instanceof BError bError
                 ? bError.getErrorMessage().getValue() : BallerinaAzureClient.describe(e);
         BError bindingError = FilesErrorCreator.contentBindingError(message, e, "/" + path, content);
         if (serviceContext.onErrorArity() == 0) {
             bindingError.printStackTrace();
-            postProcess(ctx, listenerObj, serviceContext, handler.afterError(), path, listedETag(item));
+            AzureFilesMetricsUtil.reportFileStage(ctx.url, ctx.protocol, serviceContext.watchedPath(),
+                    AzureFilesMetricsUtil.FILE_STAGE_HANDLED, AzureFilesMetricsUtil.OUTCOME_FAILURE,
+                    AzureFilesMetricsUtil.FAILURE_BINDING_FAILED, handler.methodName());
+            postProcess(ctx, listenerObj, serviceContext, handler.afterError(), path, listedETag(item),
+                    handler.methodName(), parentCtx);
             return false;
         }
+        AzureFilesMetricsUtil.reportFileStage(ctx.url, ctx.protocol, serviceContext.watchedPath(),
+                AzureFilesMetricsUtil.FILE_STAGE_HANDLED, AzureFilesMetricsUtil.OUTCOME_FAILURE,
+                AzureFilesMetricsUtil.FAILURE_BINDING_FAILED, handler.methodName());
         return invokeOnError(ctx, bindingError, listenerObj, serviceContext.onErrorAfterProcess(),
-                serviceContext.onErrorAfterError(), path, listedETag(item));
+                serviceContext.onErrorAfterError(), path, listedETag(item), parentCtx);
     }
 
     private static String listedETag(ShareFileItem item) {
@@ -529,6 +640,37 @@ public final class Listener {
         } catch (IOException e) {
             logDebug(ctx, "azure.storage.files listener: failed to close a content stream: "
                     + BallerinaAzureClient.describe(e));
+        }
+    }
+
+    private static final class ObservedInputStream extends FilterInputStream {
+
+        private final String url;
+        private final String protocol;
+
+        private ObservedInputStream(InputStream inputStream, String url, String protocol) {
+            super(inputStream);
+            this.url = url;
+            this.protocol = protocol;
+        }
+
+        @Override
+        public int read() throws IOException {
+            int result = super.read();
+            report(result < 0 ? 0 : 1);
+            return result;
+        }
+
+        @Override
+        public int read(byte[] bytes, int offset, int length) throws IOException {
+            int result = super.read(bytes, offset, length);
+            report(result < 0 ? 0 : result);
+            return result;
+        }
+
+        private void report(int bytes) {
+            AzureFilesMetricsUtil.reportBytesTransferred(url, protocol,
+                    AzureFilesMetricsUtil.CONTEXT_LISTENER, AzureFilesMetricsUtil.OPERATION_TYPE_GET, bytes);
         }
     }
 
@@ -582,11 +724,11 @@ public final class Listener {
     }
 
     private static Object invokeHandler(ListenerContext ctx, BObject service, HandlerConfig handler, Object content,
-                                        BMap<BString, Object> fileInfo) {
+                                        BMap<BString, Object> fileInfo, Map<String, Object> strandProperties) {
         ObjectType serviceType = (ObjectType) TypeUtils.getReferredType(TypeUtils.getType(service));
         String methodName = handler.methodName();
         boolean isConcurrentSafe = serviceType.isIsolated() && serviceType.isIsolated(methodName);
-        StrandMetadata metadata = new StrandMetadata(isConcurrentSafe, null);
+        StrandMetadata metadata = new StrandMetadata(isConcurrentSafe, strandProperties);
 
         // The handler carries content plus the optional FileInfo and Caller, in that order; pass
         // only the parameters it declares (a two-parameter handler takes either one).
@@ -609,13 +751,19 @@ public final class Listener {
     }
 
     // Applies a post-process action (delete, or move to a target directory). A failure is
-    // logged and left alone so the file re-fires on a later poll.
+    // logged and left alone so the file re-fires on a later poll. Also finishes the parent span.
     private static void postProcess(ListenerContext ctx, BObject listenerObj, ServiceContext serviceContext,
                                     PostAction action,
-                                    String path, String expectedETag) {
+                                    String path, String expectedETag,
+                                    String handlerName, AzureFilesObserverContext parentCtx) {
         if (action == null) {
+            AzureFilesTracingUtil.finishFileLifecycleSpan(parentCtx);
             return;
         }
+        String cleanupAction = action.isDelete()
+                ? AzureFilesMetricsUtil.CLEANUP_ACTION_DELETE : AzureFilesMetricsUtil.CLEANUP_ACTION_MOVE;
+        BSpan cleanupSpan = AzureFilesTracingUtil.createChildSpan(parentCtx, "file-cleanup",
+                AzureFilesMetricsUtil.FILE_STAGE_CLEANED_UP, cleanupAction, handlerName);
         try {
             ShareClient share = BallerinaAzureClient.getShareClient(listenerObj);
             // A changed entity tag means content no dispatch has seen; leave the file for the
@@ -631,21 +779,41 @@ public final class Listener {
             }
             if (action.isDelete()) {
                 share.getFileClient(path).delete();
-                return;
+            } else {
+                String moveRoot = BallerinaAzureClient.directoryPath(StringUtils.fromString(action.moveTo()));
+                String destination = action.preserveSubDirs()
+                        ? join(moveRoot, relativeTo(path, serviceContext.watchedPath()))
+                        : join(moveRoot, path.substring(path.lastIndexOf('/') + 1));
+                int slash = destination.lastIndexOf('/');
+                ensureDirectory(ctx, share, slash < 0 ? "" : destination.substring(0, slash));
+                share.getFileClient(path).renameWithResponse(
+                        new ShareFileRenameOptions(destination).setReplaceIfExists(true), null, null);
             }
-            String moveRoot = BallerinaAzureClient.directoryPath(StringUtils.fromString(action.moveTo()));
-            String destination = action.preserveSubDirs()
-                    ? join(moveRoot, relativeTo(path, serviceContext.watchedPath()))
-                    : join(moveRoot, path.substring(path.lastIndexOf('/') + 1));
-            int slash = destination.lastIndexOf('/');
-            ensureDirectory(ctx, share, slash < 0 ? "" : destination.substring(0, slash));
-            // A same-named file already at the destination is replaced: a failing rename would
-            // leave the source in the watched path, re-dispatching it on every later poll.
-            share.getFileClient(path).renameWithResponse(
-                    new ShareFileRenameOptions(destination).setReplaceIfExists(true), null, null);
+            // Stage 4: Cleanup succeeded
+            AzureFilesMetricsUtil.reportFileStage(ctx.url, ctx.protocol, serviceContext.watchedPath(),
+                    AzureFilesMetricsUtil.FILE_STAGE_CLEANED_UP, AzureFilesMetricsUtil.OUTCOME_SUCCESS,
+                    null, handlerName, cleanupAction);
+            if (cleanupSpan != null) {
+                AzureFilesTracingUtil.addOutcomeToSpan(cleanupSpan, AzureFilesMetricsUtil.OUTCOME_SUCCESS, null);
+            }
         } catch (RuntimeException e) {
+            // Stage 4: Cleanup failed
+            String failureReason = action.isDelete()
+                    ? AzureFilesMetricsUtil.FAILURE_DELETE_FAILED : AzureFilesMetricsUtil.FAILURE_MOVE_FAILED;
+            AzureFilesMetricsUtil.reportFileStage(ctx.url, ctx.protocol, serviceContext.watchedPath(),
+                    AzureFilesMetricsUtil.FILE_STAGE_CLEANED_UP, AzureFilesMetricsUtil.OUTCOME_FAILURE,
+                    failureReason, handlerName, cleanupAction);
+            if (cleanupSpan != null) {
+                AzureFilesTracingUtil.addOutcomeToSpan(cleanupSpan, AzureFilesMetricsUtil.OUTCOME_FAILURE,
+                        failureReason);
+            }
             logWarn(ctx, "azure.storage.files listener: post-process failed for " + path + ": "
                     + BallerinaAzureClient.describe(e));
+        } finally {
+            if (cleanupSpan != null) {
+                cleanupSpan.finishSpan();
+            }
+            AzureFilesTracingUtil.finishFileLifecycleSpan(parentCtx);
         }
     }
 
@@ -832,6 +1000,9 @@ public final class Listener {
         private final BObject caller;
         private final String shareName;
         private final boolean laxDataBinding;
+        // Observability: the remote URL and protocol, extracted at init time.
+        private final String url;
+        private final String protocol;
 
         // Files whose dispatch is still running, keyed by path: one file, one invocation at
         // a time, regardless of version changes while handling runs.
@@ -847,10 +1018,13 @@ public final class Listener {
         // The stopped flag: set by a stop, checked by the scan and dispatch paths.
         private volatile boolean stopped;
 
-        private ListenerContext(BObject caller, String shareName, boolean laxDataBinding) {
+        private ListenerContext(BObject caller, String shareName, boolean laxDataBinding,
+                                String url, String protocol) {
             this.caller = caller;
             this.shareName = shareName;
             this.laxDataBinding = laxDataBinding;
+            this.url = url;
+            this.protocol = protocol;
         }
     }
 
