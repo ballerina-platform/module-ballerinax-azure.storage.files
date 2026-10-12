@@ -57,7 +57,7 @@ ballerina {
     packageOrganization = packageOrg
     module = packageName
     testCoverageParam = "--code-coverage --coverage-format=xml"
-    platform = "java21"
+    platform = "java25"
     // The connector build: every bal step runs in the released ballerina/ballerina docker
     // image (tag = ballerinaLangVersion), so no distribution is downloaded or unpacked.
     connector = true
