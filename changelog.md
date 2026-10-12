@@ -4,6 +4,12 @@ This file documents all notable changes to the Ballerina Azure Files package. Th
 
 ## [Unreleased]
 
+### Changed
+
+- Updated the minimum required Ballerina distribution to 2201.14.0 (Swan Lake Update 14) with Java 25 support
+- Updated Netty to 4.2.18.Final, replacing the `netty-codec` artifact with `netty-codec-base` and adding `netty-codec-compression` ([#9152](https://github.com/ballerina-platform/ballerina-library/issues/9152))
+- Updated Reactor Netty to 1.3.7, reactor-core to 3.8.7 and netty-tcnative-classes to 2.0.84.Final
+
 ### Fixed
 
 - Remove conflicting jar file warnings during consumer builds by aligning the `data.jsondata` and `data.xmldata` dependency versions with the distribution and marking `slf4j-api` as test-only
