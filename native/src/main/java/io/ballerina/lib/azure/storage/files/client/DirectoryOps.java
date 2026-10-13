@@ -21,6 +21,8 @@ package io.ballerina.lib.azure.storage.files.client;
 import com.azure.storage.file.share.ShareDirectoryClient;
 import com.azure.storage.file.share.options.ShareDirectoryCreateOptions;
 import com.azure.storage.file.share.options.ShareFileRenameOptions;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesMetricsUtil;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesTracingUtil;
 import io.ballerina.lib.azure.storage.files.util.BallerinaAzureClient;
 import io.ballerina.lib.azure.storage.files.util.OptionsReader;
 import io.ballerina.lib.azure.storage.files.util.RecordMapper;
@@ -40,7 +42,10 @@ public final class DirectoryOps {
 
     /** Creates a directory with the given options. */
     public static Object createDirectory(Environment env, BObject self, BString directoryPath, Object options) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE,
+                directoryPath.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             ShareDirectoryCreateOptions sdkOptions = new ShareDirectoryCreateOptions();
             if (options != null) {
                 @SuppressWarnings("unchecked")
@@ -50,46 +55,67 @@ public final class DirectoryOps {
             directoryClient(self, directoryPath).createWithResponse(sdkOptions, null, null);
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Deletes an empty directory. */
     public static Object deleteDirectory(Environment env, BObject self, BString directoryPath) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE,
+                directoryPath.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             directoryClient(self, directoryPath).delete();
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Checks whether the directory exists; {@code false} only on a confirmed 404. */
     public static Object hasDirectory(Environment env, BObject self, BString directoryPath) {
-        return BallerinaAzureClient.invoke(env, () -> directoryClient(self, directoryPath).exists());
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_GET,
+                directoryPath.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> directoryClient(self, directoryPath).exists());
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Fetches a directory's properties as a {@code DirectoryProperties} record. */
     public static Object getDirectoryProperties(Environment env, BObject self, BString directoryPath) {
-        return BallerinaAzureClient.invoke(env, () ->
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_GET,
+                directoryPath.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () ->
                 RecordMapper.directoryProperties(directoryClient(self, directoryPath).getProperties()));
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Replaces a directory's user-defined metadata. */
     public static Object setDirectoryMetadata(Environment env, BObject self, BString directoryPath,
                                               BMap<BString, BString> metadata) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE,
+                directoryPath.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             directoryClient(self, directoryPath).setMetadata(ValueUtils.toStringMap(metadata));
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Renames or moves a directory within the share. */
     public static Object renameDirectory(Environment env, BObject self, BString sourcePath,
                                          BString destinationPath, Object options) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE,
+                sourcePath.getValue(), destinationPath.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             String source = BallerinaAzureClient.filePath(sourcePath);
             String destination = BallerinaAzureClient.filePath(destinationPath);
             ShareDirectoryClient client = BallerinaAzureClient.getShareClient(self).getDirectoryClient(source);
             client.renameWithResponse(renameOptions(destination, options), null, null);
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Builds the SDK rename options shared by the file and directory renames. */

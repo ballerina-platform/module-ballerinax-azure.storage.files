@@ -31,6 +31,7 @@ import com.azure.identity.WorkloadIdentityCredentialBuilder;
 import com.azure.storage.file.share.ShareServiceClient;
 import com.azure.storage.file.share.ShareServiceClientBuilder;
 import com.azure.storage.file.share.models.ShareTokenIntent;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesMetricsUtil;
 import io.ballerina.lib.azure.storage.files.util.BallerinaAzureClient;
 import io.ballerina.lib.azure.storage.files.util.FilesErrorCreator;
 import io.ballerina.lib.azure.storage.files.util.TransportConfigMapper;
@@ -86,7 +87,14 @@ public final class ClientInit {
      */
     public static Object initAdminClient(BObject self, BMap<BString, Object> config) {
         try {
-            self.addNativeData(BallerinaAzureClient.NATIVE_SERVICE_CLIENT, buildServiceClient(config));
+            ShareServiceClient serviceClient = buildServiceClient(config);
+            self.addNativeData(BallerinaAzureClient.NATIVE_SERVICE_CLIENT, serviceClient);
+            String accountUrl = serviceClient.getFileServiceUrl();
+            String remoteUrl = BallerinaAzureClient.extractHost(accountUrl);
+            String protocol = BallerinaAzureClient.extractProtocol(accountUrl);
+            self.addNativeData(BallerinaAzureClient.NATIVE_REMOTE_URL, remoteUrl);
+            self.addNativeData(BallerinaAzureClient.NATIVE_PROTOCOL, protocol);
+            AzureFilesMetricsUtil.reportNewConnection(remoteUrl, protocol, AzureFilesMetricsUtil.CONTEXT_CLIENT);
             return null;
         } catch (BError e) {
             return e;
@@ -112,6 +120,12 @@ public final class ClientInit {
             ShareServiceClient serviceClient = buildServiceClient(config);
             self.addNativeData(BallerinaAzureClient.NATIVE_SERVICE_CLIENT, serviceClient);
             self.addNativeData(BallerinaAzureClient.NATIVE_SHARE_CLIENT, serviceClient.getShareClient(share));
+            String accountUrl = serviceClient.getFileServiceUrl();
+            String remoteUrl = BallerinaAzureClient.extractHost(accountUrl);
+            String protocol = BallerinaAzureClient.extractProtocol(accountUrl);
+            self.addNativeData(BallerinaAzureClient.NATIVE_REMOTE_URL, remoteUrl);
+            self.addNativeData(BallerinaAzureClient.NATIVE_PROTOCOL, protocol);
+            AzureFilesMetricsUtil.reportNewConnection(remoteUrl, protocol, AzureFilesMetricsUtil.CONTEXT_CLIENT);
             return null;
         } catch (BError e) {
             return e;

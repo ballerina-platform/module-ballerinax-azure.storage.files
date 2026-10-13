@@ -30,6 +30,8 @@ import com.azure.storage.file.share.models.ShareSnapshotsDeleteOptionType;
 import com.azure.storage.file.share.models.UserDelegationKey;
 import com.azure.storage.file.share.options.ShareCreateOptions;
 import com.azure.storage.file.share.options.ShareDeleteOptions;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesMetricsUtil;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesTracingUtil;
 import io.ballerina.lib.azure.storage.files.util.BallerinaAzureClient;
 import io.ballerina.lib.azure.storage.files.util.OptionsReader;
 import io.ballerina.lib.azure.storage.files.util.RecordMapper;
@@ -56,13 +58,18 @@ public final class AdminOps {
      * {@code exists()} always yields a real boolean (404 folds to false, other failures throw).
      */
     public static Object hasShare(Environment env, BObject self, BString shareName) {
-        return BallerinaAzureClient.invoke(env, () -> BallerinaAzureClient.getServiceClient(self)
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_GET, null);
+        Object result = BallerinaAzureClient.invoke(env, () -> BallerinaAzureClient.getServiceClient(self)
                 .getShareClient(shareName.getValue()).exists());
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Lists the shares in the storage account as an array of {@code ShareInfo} records. */
     public static Object listShares(Environment env, BObject self, Object options) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_GET, null);
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             ListSharesOptions sdkOptions = new ListSharesOptions();
             if (options != null) {
                 @SuppressWarnings("unchecked")
@@ -72,17 +79,20 @@ public final class AdminOps {
                         .setIncludeSnapshots(record.getBooleanValue(OptionsReader.INCLUDE_SNAPSHOTS))
                         .setIncludeDeleted(record.getBooleanValue(OptionsReader.INCLUDE_DELETED));
             }
-            BArray result = RecordMapper.recordArray(RecordMapper.RECORD_SHARE_INFO);
+            BArray shares = RecordMapper.recordArray(RecordMapper.RECORD_SHARE_INFO);
             for (ShareItem item : BallerinaAzureClient.getServiceClient(self).listShares(sdkOptions, null, null)) {
-                result.append(RecordMapper.shareInfo(item));
+                shares.append(RecordMapper.shareInfo(item));
             }
-            return result;
+            return shares;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Creates a new share with the given options. */
     public static Object createShare(Environment env, BObject self, BString shareName, Object options) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE, null);
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             ShareCreateOptions sdkOptions = new ShareCreateOptions();
             if (options != null) {
                 @SuppressWarnings("unchecked")
@@ -119,11 +129,14 @@ public final class AdminOps {
                     .createShareWithResponse(shareName.getValue(), sdkOptions, null, null);
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Deletes a share, one of its snapshots, or the share together with its snapshots. */
     public static Object deleteShare(Environment env, BObject self, BString shareName, Object options) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE, null);
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             ShareServiceClient serviceClient = BallerinaAzureClient.getServiceClient(self);
             if (options == null) {
                 serviceClient.deleteShare(shareName.getValue());
@@ -150,37 +163,50 @@ public final class AdminOps {
             serviceClient.getShareClient(shareName.getValue()).deleteWithResponse(sdkOptions, null, null);
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Restores a soft-deleted share identified by its name and delete version. */
     public static Object undeleteShare(Environment env, BObject self, BString shareName, BString version) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE, null);
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             BallerinaAzureClient.getServiceClient(self).undeleteShare(shareName.getValue(), version.getValue());
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Fetches the account's file-service properties as a {@code ServiceProperties} record. */
     public static Object getServiceProperties(Environment env, BObject self) {
-        return BallerinaAzureClient.invoke(env, () ->
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_GET, null);
+        Object result = BallerinaAzureClient.invoke(env, () ->
                 RecordMapper.serviceProperties(BallerinaAzureClient.getServiceClient(self).getProperties()));
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Replaces the account's file-service properties. */
     public static Object setServiceProperties(Environment env, BObject self, BMap<BString, Object> properties) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE, null);
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             ShareServiceProperties sdkProperties = OptionsReader.serviceProperties(properties);
             BallerinaAzureClient.getServiceClient(self).setProperties(sdkProperties);
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Requests a user-delegation key valid for the given time window. */
     public static Object getUserDelegationKey(Environment env, BObject self, BArray startTime, BArray expiryTime) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_GET, null);
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             UserDelegationKey key = BallerinaAzureClient.getServiceClient(self)
                     .getUserDelegationKey(ValueUtils.fromUtc(startTime), ValueUtils.fromUtc(expiryTime));
             return RecordMapper.userDelegationKey(key);
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 }

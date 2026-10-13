@@ -50,6 +50,8 @@ public final class BallerinaAzureClient {
     public static final String NATIVE_SHARE_CLIENT = "shareClient";
     /** The Caller field holding the wrapped Client object. */
     public static final BString CALLER_CLIENT_FIELD = StringUtils.fromString("client");
+    public static final String NATIVE_REMOTE_URL = "remoteUrl";
+    public static final String NATIVE_PROTOCOL = "protocol";
     // The query parameter that addresses a share snapshot on the wire.
     private static final String SHARE_SNAPSHOT_PARAM = "sharesnapshot";
 
@@ -214,5 +216,64 @@ public final class BallerinaAzureClient {
             result = result.substring(0, result.length() - 1);
         }
         return result;
+    }
+
+    /**
+     * Returns the remote URL stored on a client object for observability.
+     *
+     * @param self the Ballerina client object
+     * @return the remote URL, or {@code null} if not set
+     */
+    public static String getRemoteUrl(BObject self) {
+        return (String) self.getNativeData(NATIVE_REMOTE_URL);
+    }
+
+    /**
+     * Returns the wire protocol stored on a client object for observability.
+     *
+     * @param self the Ballerina client object
+     * @return the protocol (e.g. "https"), or {@code null} if not set
+     */
+    public static String getProtocol(BObject self) {
+        return (String) self.getNativeData(NATIVE_PROTOCOL);
+    }
+
+    /**
+     * Extracts the host (with port if non-default) from an account URL for the {@code remote.url} tag.
+     *
+     * @param accountUrl the Azure account URL (e.g. "https://myaccount.file.core.windows.net")
+     * @return the host:port string, or the raw URL if parsing fails
+     */
+    public static String extractHost(String accountUrl) {
+        if (accountUrl == null) {
+            return null;
+        }
+        try {
+            java.net.URI uri = new java.net.URI(accountUrl);
+            String host = uri.getHost();
+            int port = uri.getPort();
+            return port > 0 ? host + ":" + port : host;
+        } catch (java.net.URISyntaxException e) {
+            return accountUrl;
+        }
+    }
+
+    /**
+     * Extracts the protocol scheme from an account URL.
+     *
+     * @param accountUrl the Azure account URL
+     * @return the scheme (e.g. "https"), or "https" if parsing fails
+     */
+    public static String extractProtocol(String accountUrl) {
+        if (accountUrl == null) {
+            return "https";
+        }
+        try {
+            java.net.URI uri = new java.net.URI(accountUrl);
+            String scheme = uri.getScheme();
+            return scheme != null ? scheme : "https";
+        } catch (java.net.URISyntaxException e) {
+            return "https";
+        }
     }
 }

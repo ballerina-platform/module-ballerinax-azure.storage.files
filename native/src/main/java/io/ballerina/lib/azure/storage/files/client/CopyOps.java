@@ -23,6 +23,8 @@ import com.azure.storage.file.share.ShareFileClient;
 import com.azure.storage.file.share.models.ShareFileCopyInfo;
 import com.azure.storage.file.share.models.ShareFileProperties;
 import com.azure.storage.file.share.options.ShareFileCopyOptions;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesMetricsUtil;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesTracingUtil;
 import io.ballerina.lib.azure.storage.files.util.BallerinaAzureClient;
 import io.ballerina.lib.azure.storage.files.util.FilesErrorCreator;
 import io.ballerina.lib.azure.storage.files.util.OptionsReader;
@@ -49,31 +51,46 @@ public final class CopyOps {
     /** Starts a server-side copy from another file in the same share. */
     public static Object copyFile(Environment env, BObject self, BString sourcePath,
                                   BString destinationPath, Object options) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE,
+                sourcePath.getValue(), destinationPath.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             String sourceUrl = BallerinaAzureClient.getShareClient(self)
                     .getFileClient(BallerinaAzureClient.filePath(sourcePath)).getFileUrl();
             return startCopy(self, sourceUrl, destinationPath, options);
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Starts a server-side copy from any accessible source URL. */
     public static Object copyFileFromUrl(Environment env, BObject self, BString sourceUrl,
                                          BString destinationPath, Object options) {
-        return BallerinaAzureClient.invoke(env, () -> startCopy(self, sourceUrl.getValue(), destinationPath, options));
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE,
+                destinationPath.getValue());
+        Object result = BallerinaAzureClient.invoke(env,
+                () -> startCopy(self, sourceUrl.getValue(), destinationPath, options));
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Reports the progress of a copy targeting the given file; {@code null} when none exists. */
     public static Object checkCopyStatus(Environment env, BObject self, BString path) {
-        return BallerinaAzureClient.invoke(env, () ->
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_GET, path.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () ->
                 RecordMapper.copyStatusInfo(FileOps.fileClient(self, path).getProperties()));
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Aborts an in-progress copy identified by its copy id. */
     public static Object abortCopy(Environment env, BObject self, BString path, BString copyId) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_MANAGE, path.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             FileOps.fileClient(self, path).abortCopy(copyId.getValue());
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     private static Object startCopy(BObject self, String sourceUrl, BString destinationPath, Object options) {

@@ -22,6 +22,8 @@ import com.azure.storage.file.share.ShareClient;
 import com.azure.storage.file.share.ShareDirectoryClient;
 import com.azure.storage.file.share.models.ShareFileItem;
 import com.azure.storage.file.share.options.ShareListFilesAndDirectoriesOptions;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesMetricsUtil;
+import io.ballerina.lib.azure.storage.files.observability.AzureFilesTracingUtil;
 import io.ballerina.lib.azure.storage.files.util.BallerinaAzureClient;
 import io.ballerina.lib.azure.storage.files.util.OptionsReader;
 import io.ballerina.lib.azure.storage.files.util.RecordMapper;
@@ -54,7 +56,10 @@ public final class ListOps {
      */
     public static Object newEntryIterator(Environment env, BObject self, BObject generator,
                                           BString directoryPath, BMap<BString, Object> options) {
-        return BallerinaAzureClient.invoke(env, () -> {
+        AzureFilesTracingUtil.sendMetricsData(env, BallerinaAzureClient.getRemoteUrl(self),
+                BallerinaAzureClient.getProtocol(self), AzureFilesMetricsUtil.OPERATION_TYPE_GET,
+                directoryPath.getValue());
+        Object result = BallerinaAzureClient.invoke(env, () -> {
             String prefix = ValueUtils.optString(options, OptionsReader.PREFIX);
             boolean recursive = options.getBooleanValue(OptionsReader.RECURSIVE);
             Integer pageSize = Math.toIntExact((Long) options.get(OptionsReader.PAGE_SIZE));
@@ -65,6 +70,7 @@ public final class ListOps {
             generator.addNativeData(NATIVE_ITERATOR, iterator);
             return null;
         });
+        return AzureFilesTracingUtil.sendTraces(result, env);
     }
 
     /** Pulls the next entry: an {@code Entry} record, {@code null} at the end, or an error. */
