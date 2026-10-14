@@ -6,7 +6,11 @@ This file documents all notable changes to the Ballerina Azure Files package. Th
 
 ### Added
 
-- Observability support: the clients and the listener publish metrics and traces that follow the observability specification shared by the Ballerina file integration modules, active only when the Ballerina runtime's observability is enabled
+- [Observability support: the clients and the listener publish metrics and traces that follow the observability specification shared by the Ballerina file integration modules, active only when the Ballerina runtime's observability is enabled](https://github.com/ballerina-platform/module-ballerinax-azure.storage.files/pull/16)
+
+### Fixed
+
+- [Services created from the low-code editor attach to the watched path as a service path (`service /uploads on ...`) instead of a quoted string literal](https://github.com/ballerina-platform/ballerina-library/issues/9303)
 
 ## [1.0.3] - 2026-09-16
 
