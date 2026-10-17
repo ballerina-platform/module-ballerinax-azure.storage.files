@@ -17,6 +17,13 @@
  */
 
 import org.apache.tools.ant.taskdefs.condition.Os
+import org.gradle.process.ExecOperations
+
+import javax.inject.Inject
+
+abstract class BallerinaExecHelper {
+    @Inject abstract ExecOperations getExecOperations()
+}
 
 plugins {
     id 'io.ballerina.plugin'
@@ -53,7 +60,7 @@ ballerina {
     platform = "java21"
     // The connector build: every bal step runs in the released ballerina/ballerina docker
     // image (tag = ballerinaLangVersion), so no distribution is downloaded or unpacked.
-    isConnector = true
+    connector = true
 }
 
 configurations {
@@ -107,9 +114,10 @@ task updateTomlFiles {
 }
 
 task commitTomlFiles {
+    def execHelper = project.objects.newInstance(BallerinaExecHelper)
     doLast {
-        project.exec {
-            ignoreExitValue true
+        execHelper.execOperations.exec {
+            ignoreExitValue = true
             if (Os.isFamily(Os.FAMILY_WINDOWS)) {
                 commandLine 'cmd', '/c', "git commit -m \"[Automated] Update the toml files\" Ballerina.toml Dependencies.toml CompilerPlugin.toml"
             } else {
@@ -138,7 +146,7 @@ test.dependsOn copyToLib
 // plugin tests run on the host JVM against the installed distribution anyway.
 task publishToLocalRepo(type: Exec) {
     dependsOn build
-    workingDir project.projectDir
+    workingDir = project.projectDir
     // The docker pack writes the bala under build/bal_build_target and bal push extracts the bala's platform jars beside the
     // bala file. The push therefore runs against a copy staged in a host-owned directory.
     doFirst {
