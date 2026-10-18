@@ -4,6 +4,12 @@ This file documents all notable changes to the Ballerina Azure Files package. Th
 
 ## [Unreleased]
 
+### Changed
+
+- [[#2804] Shorten the module summary so it is not truncated in the WSO2 Integrator connector view](https://github.com/wso2/product-integrator/issues/2804)
+
+## [1.1.0] - 2026-10-14
+
 ### Added
 
 - [Observability support: the clients and the listener publish metrics and traces that follow the observability specification shared by the Ballerina file integration modules, active only when the Ballerina runtime's observability is enabled](https://github.com/ballerina-platform/module-ballerinax-azure.storage.files/pull/16)
