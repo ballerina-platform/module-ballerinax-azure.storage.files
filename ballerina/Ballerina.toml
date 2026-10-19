@@ -88,8 +88,8 @@ path = "./lib/data.xmldata-native-1.7.0.jar"
 [[platform.java25.dependency]]
 groupId = "io.ballerina.lib"
 artifactId = "data.csv-native"
-version = "0.8.2"
-path = "./lib/data.csv-native-0.8.2.jar"
+version = "1.0.0"
+path = "./lib/data.csv-native-1.0.0.jar"
 
 [[platform.java25.dependency]]
 groupId = "com.azure"
