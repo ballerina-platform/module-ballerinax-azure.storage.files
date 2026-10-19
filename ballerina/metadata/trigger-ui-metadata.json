@@ -41,11 +41,7 @@
         "widget": {
           "alternatives": [
             {
-              "widgetKind": "TEXT",
-              "ballerinaType": "string"
-            },
-            {
-              "widgetKind": "EXPRESSION",
+              "widgetKind": "SERVICE_PATH",
               "ballerinaType": "string"
             }
           ],
