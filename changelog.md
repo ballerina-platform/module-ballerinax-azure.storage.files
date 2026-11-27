@@ -4,6 +4,14 @@ This file documents all notable changes to the Ballerina Azure Files package. Th
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-27
+
+### Changed
+
+- [Update jackson to 2.18.11 to fix known vulnerabilities](https://github.com/ballerina-platform/ballerina-library/issues/9645)
+
+## [1.2.0] - 2026-10-19
+
 ### Changed
 
 - [[#2804] Shorten the module summary so it is not truncated in the WSO2 Integrator connector view](https://github.com/wso2/product-integrator/issues/2804)
